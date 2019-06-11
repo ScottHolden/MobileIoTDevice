@@ -1,0 +1,97 @@
+﻿<!DOCTYPE html>
+
+<html lang="en" xmlns="http://www.w3.org/1999/xhtml">
+<head>
+    <meta charset="utf-8" />
+    <title>IoT Hub Device Demo</title>
+    <style>
+        body {
+            font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Helvetica,Arial,sans-serif,Apple Color Emoji,Segoe UI Emoji,Segoe UI Symbol;
+        }
+        .hidden {
+            display: none;
+        }
+    </style>
+    <meta name="viewport" content="width=device-width, minimum-scale=1.0, maximum-scale=1.0" />
+</head>
+<body>
+    <div id="demo">
+        <h1 id="bigDesc">Loading...</h1>
+        <h3 id="smallDesc"></h3>
+        <div id="valuesDiv"></div>
+    </div>
+    <script src="https://unpkg.com/mqtt@2.14.0/dist/mqtt.min.js"></script>
+    <script>
+        window.addEventListener("load", function () {
+            // How long to wait between sending messages
+            let timeout = 1000;
+            let bigDesc = document.getElementById("bigDesc");
+            let smallDesc = document.getElementById("smallDesc");
+            let valuesDiv = document.getElementById("valuesDiv");
+            if (window.location.protocol !== "https:" &&
+                (location.hostname !== "localhost" || location.hostname !== "127.0.0.1")) {
+                bigDesc.innerText = "HTTPS is required for device motion!";
+                return;
+            }
+            if (!window.DeviceMotionEvent) {
+                bigDesc.innerText = "It doesn't look like motion is supported on this device!";
+                return;
+            }
+            let storageEnabled = (typeof (Storage) !== "undefined");
+            let deviceIdStorageKey = "deviceID";
+            var deviceId = "unknown";
+            if (storageEnabled) {
+                deviceId = localStorage.getItem(deviceIdStorageKey) || deviceId;
+            }
+            var client;
+            var m = null;
+            var xmlhttp = new XMLHttpRequest();
+            xmlhttp.onreadystatechange = function () {
+                if (xmlhttp.readyState == XMLHttpRequest.DONE) {
+                    if (xmlhttp.status == 200) {
+                        var info = JSON.parse(xmlhttp.responseText);
+                        deviceId = info.deviceID;
+
+                        if (storageEnabled) {
+                            localStorage.setItem(deviceIdStorageKey, deviceId);
+                        }
+
+                        client = mqtt.connect(info.endpoint, {
+                            clientId: deviceId,
+                            username: info.username,
+                            password: info.password
+                        });
+
+                        bigDesc.classList.add("hidden");
+                        smallDesc.innerText = deviceId;
+                        window.addEventListener('devicemotion', function (event) {
+                            let ax = event.accelerationIncludingGravity.x;
+                            let ay = event.accelerationIncludingGravity.y;
+                            let az = event.accelerationIncludingGravity.z;
+                            let g = Math.sqrt(ax * ax + ay * ay + az * az) / 9.8;
+                            m = {
+                                ax: ax,
+                                ay: ay,
+                                az: az,
+                                g: g
+                            };
+                        }, true);
+                        valuesDiv.innerText = "Waiting for device motion...";
+                        setInterval(function () {
+                            if (!m) return;
+                            console.log(m);
+                            client.publish("devices/" + deviceId + "/messages/events/", JSON.stringify(m));
+                            valuesDiv.innerHTML = "<p>X: " + m.ax + "</p><p>Y: " + m.ay + "</p><p>Z: " + m.az + "</p><p>G: " + m.g + "</p>";
+                        }, timeout);
+                    }
+                    else {
+                        bigDesc.innerText = "Unable to provision device on IoT Hub.";
+                    }
+                }
+            };
+            xmlhttp.open("POST", "/api/device/connect/" + deviceId, true);
+            xmlhttp.send();
+        });
+    </script>
+</body>
+</html>
